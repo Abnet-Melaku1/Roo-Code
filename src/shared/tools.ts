@@ -80,6 +80,12 @@ export const toolParamNames = [
 	// read_file legacy format parameter (backward compatibility)
 	"files",
 	"line_ranges",
+	// select_active_intent parameter
+	"intent_id",
+	// record_lesson parameters
+	"category",
+	"lesson",
+	"file_context",
 ] as const
 
 export type ToolParamName = (typeof toolParamNames)[number]
@@ -115,6 +121,8 @@ export type NativeToolArgs = {
 	update_todo_list: { todos: string }
 	use_mcp_tool: { server_name: string; tool_name: string; arguments?: Record<string, unknown> }
 	write_to_file: { path: string; content: string }
+	select_active_intent: { intent_id: string }
+	record_lesson: { category: string; lesson: string; file_context?: string }
 	// Add more tools as they are migrated to native protocol
 }
 
@@ -289,6 +297,8 @@ export const TOOL_DISPLAY_NAMES: Record<ToolName, string> = {
 	skill: "load skill",
 	generate_image: "generate images",
 	custom_tool: "use custom tools",
+	select_active_intent: "select active intent",
+	record_lesson: "record lesson to shared brain",
 } as const
 
 // Define available tool groups.
@@ -321,6 +331,8 @@ export const ALWAYS_AVAILABLE_TOOLS: ToolName[] = [
 	"update_todo_list",
 	"run_slash_command",
 	"skill",
+	"select_active_intent",
+	"record_lesson",
 ] as const
 
 /**
