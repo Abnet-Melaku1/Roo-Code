@@ -1,0 +1,15 @@
+active_intents:
+    - id: "INT-001"
+      name: "Implement Select Active Intent Tool"
+      status: "IN_PROGRESS"
+      owned_scope:
+          - "src/core/prompts/tools/native-tools/**"
+          - "src/hooks/**"
+          - "src/core/assistant-message/presentAssistantMessage.ts"
+          - "src/core/prompts/sections/rules.ts"
+      constraints:
+          - "Must define a valid JSON schema for the tool"
+          - "Must not throw unstructured errors on failure"
+      acceptance_criteria:
+          - "The agent can call select_active_intent without error"
+          - "The context loader returns constraints"

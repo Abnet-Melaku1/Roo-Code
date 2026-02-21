@@ -7,7 +7,17 @@
 export type HookPhase = "pre" | "post"
 
 /** Tool names that the hook engine can intercept */
-export type HookableToolName = "write_to_file" | "execute_command" | "select_active_intent"
+export type HookableToolName =
+	| "write_to_file"
+	| "execute_command"
+	| "select_active_intent"
+	| "edit_file"
+	| "search_replace"
+	| "apply_diff"
+	| "new_task"
+	| "edit"
+	| "search_and_replace"
+	| "apply_patch"
 
 /** Classification for write_file mutations (Phase 3) */
 export type MutationClass = "AST_REFACTOR" | "INTENT_EVOLUTION"
@@ -29,6 +39,4 @@ export interface PostHookContext {
 }
 
 /** Result of a pre-hook: allow, block, or inject context */
-export type PreHookResult =
-	| { allow: true; injectedContext?: string }
-	| { allow: false; error: string }
+export type PreHookResult = { allow: true; injectedContext?: string } | { allow: false; error: string }
