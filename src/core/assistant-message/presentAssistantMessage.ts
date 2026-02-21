@@ -40,6 +40,8 @@ import { codebaseSearchTool } from "../tools/CodebaseSearchTool"
 
 import { formatResponse } from "../prompts/responses"
 import { sanitizeToolUseId } from "../../utils/tool-id"
+import { hookEngine, HookableToolName } from "../../hooks"
+import { recordLesson } from "../tools/RecordLessonTool" // TRP1 Hook Engine
 
 /**
  * Processes and presents assistant message content to the user interface.
@@ -340,12 +342,18 @@ export async function presentAssistantMessage(cline: Task) {
 					case "apply_diff":
 						// Native-only: tool args are structured (no XML payloads).
 						return block.params?.path ? `[${block.name} for '${block.params.path}']` : `[${block.name}]`
+					// ... other code above
 					case "search_files":
 						return `[${block.name} for '${block.params.regex}'${
 							block.params.file_pattern ? ` in '${block.params.file_pattern}'` : ""
 						}]`
+					case "select_active_intent":
+						return `[${block.name} for '${block.params.intent_id}'` + `]`
+					case "record_lesson":
+						return `[${block.name}: ${block.params.category}]`
 					case "edit":
 					case "search_and_replace":
+						// ... other code below
 						return `[${block.name} for '${block.params.file_path}']`
 					case "search_replace":
 						return `[${block.name} for '${block.params.file_path}']`
@@ -487,6 +495,35 @@ export async function presentAssistantMessage(cline: Task) {
 				if (imageBlocks.length > 0) {
 					cline.userMessageContent.push(...imageBlocks)
 				}
+
+				// === TRP1: Run Post-Hook Framework ===
+				// Only trigger for hookable tools if the result wasn't a denial or a validation error
+				if (
+					!cline.didRejectTool &&
+					!resultContent.includes("Hook Engine Blocked Tool") &&
+					["write_to_file", "execute_command", "edit_file", "search_replace", "apply_diff"].includes(
+						block.name,
+					)
+				) {
+					const activeIntentId = (cline as any).activeIntentId
+					if (activeIntentId) {
+						// Run asynchronously so we don't block the UI update
+						hookEngine
+							.runPostHook(
+								{
+									toolName: block.name as any,
+									params: block.params,
+									activeIntentId,
+									result: resultContent,
+								},
+								cline.cwd,
+							)
+							.catch((err) => {
+								console.error("HookEngine: Failed to run Post-Hook", err)
+							})
+					}
+				}
+				// === END TRP1: Post-Hook Framework ===
 
 				hasToolResult = true
 			}
@@ -675,6 +712,63 @@ export async function presentAssistantMessage(cline: Task) {
 				}
 			}
 
+			// === TRP1: Run Pre-Hook Framework ===
+			const hookableTools = [
+				"select_active_intent",
+				"write_to_file",
+				"execute_command",
+				"new_task",
+				"edit_file",
+				"search_replace",
+				"apply_diff",
+				"edit",
+				"search_and_replace",
+				"apply_patch",
+			]
+			console.log(
+				`[TRP1] tool=${block.name} partial=${block.partial} inHookList=${hookableTools.includes(block.name)}`,
+			)
+			if (!block.partial && hookableTools.includes(block.name)) {
+				const activeIntentId = (cline as any).activeIntentId
+				console.log(`[TRP1] activeIntentId=${activeIntentId}`)
+
+				// Merge nativeArgs into params so the hook can access typed args
+				// (e.g. intent_id for select_active_intent) regardless of params population.
+				const hookParams = block.nativeArgs
+					? { ...block.params, ...(block.nativeArgs as Record<string, unknown>) }
+					: block.params
+
+				const preHookResult = await hookEngine.runPreHook(
+					{
+						toolName: block.name as HookableToolName,
+						params: hookParams,
+						activeIntentId,
+					},
+					cline.cwd,
+				)
+
+				console.log(`[TRP1] allow=${preHookResult.allow}`)
+
+				if (!preHookResult.allow) {
+					// Do NOT increment consecutiveMistakeCount — a hook block is intentional
+					// enforcement, not a model error. Incrementing it causes the model to panic
+					// and switch modes instead of simply calling select_active_intent.
+					pushToolResult(formatResponse.toolError(`Hook Engine Blocked Tool: ${preHookResult.error}`))
+					break
+				}
+
+				if (block.name === "select_active_intent") {
+					// Prefer typed nativeArgs (authoritative for native tool calls); fall back to params
+					const intentId = (block.nativeArgs as any)?.intent_id ?? block.params.intent_id
+					;(cline as any).activeIntentId = intentId
+					const injectedContextText =
+						preHookResult.injectedContext || `Successfully checked out intent ${intentId}`
+					pushToolResult(injectedContextText)
+					break
+				}
+			}
+			// === END TRP1: Pre-Hook Framework ===
+
 			switch (block.name) {
 				case "write_to_file":
 					await checkpointSaveAndMark(cline)
@@ -849,6 +943,21 @@ export async function presentAssistantMessage(cline: Task) {
 						pushToolResult,
 					})
 					break
+				case "record_lesson": {
+					if (!block.partial) {
+						const args = block.nativeArgs ?? (block.params as any)
+						const result = await recordLesson(
+							{
+								category: args.category,
+								lesson: args.lesson,
+								file_context: args.file_context,
+							},
+							cline.cwd,
+						)
+						pushToolResult(result)
+					}
+					break
+				}
 				default: {
 					// Handle unknown/invalid tool names OR custom tools
 					// This is critical for native tool calling where every tool_use MUST have a tool_result
